@@ -2,7 +2,7 @@
 Streamlit UI for the form-filling agent.
 
 Tab 1: Template Builder — create/edit form templates (questions + judge prompts)
-Tab 2: Form Filler — interact with the deterministic form graph
+Tab 2: Form Filler — interact via Graph (HITL interrupts) or Agent (chat-based)
 """
 
 import json
@@ -11,6 +11,7 @@ import streamlit as st
 from pathlib import Path
 
 from agents.form_graph import create_form_graph
+from agents.form_agent import create_form_agent
 from agents.shared import load_template
 from langgraph.types import Command
 
@@ -29,6 +30,13 @@ def list_templates() -> list[str]:
         f.name for f in TEMPLATES_DIR.iterdir()
         if f.suffix in (".json", ".yaml", ".yml")
     )
+
+
+def _clear_ff_state():
+    """Remove all Form Filler session state keys."""
+    for key in list(st.session_state.keys()):
+        if key.startswith("ff_") and key != "ff_mode":
+            del st.session_state[key]
 
 
 # ---------------------------------------------------------------------------
@@ -115,26 +123,17 @@ def template_builder_tab():
 
 
 # ---------------------------------------------------------------------------
-# Tab 2: Form Filler
+# Tab 2: Form Filler — Graph mode
 # ---------------------------------------------------------------------------
 
-def form_filler_tab():
-    st.header("Form Filler")
+def _form_filler_graph(selected: str):
+    """Graph mode: deterministic HITL with interrupt/resume."""
 
-    templates = list_templates()
-    if not templates:
-        st.info("No templates found in `templates/`. Create one in the Template Builder tab first.")
-        return
-
-    selected = st.selectbox("Select template", templates, key="ff_template")
-
-    # --- Start / Reset ---
-    if st.button("Start Form") or st.session_state.get("ff_active"):
-        # Initialize graph on first click
+    if st.button("Start Form", key="ff_graph_start") or st.session_state.get("ff_active"):
         if not st.session_state.get("ff_active") or st.session_state.get("ff_current_template") != selected:
             with st.spinner("Loading template and building graph..."):
                 graph, template = create_form_graph(str(TEMPLATES_DIR / selected))
-                config = {"configurable": {"thread_id": f"streamlit-{selected}"}}
+                config = {"configurable": {"thread_id": f"streamlit-graph-{selected}"}}
 
                 result = graph.invoke(
                     {
@@ -151,13 +150,13 @@ def form_filler_tab():
                 st.session_state["ff_current_template"] = selected
                 st.session_state["ff_graph"] = graph
                 st.session_state["ff_config"] = config
-                st.session_state["ff_template"] = template
+                st.session_state["ff_template_data"] = template
                 st.session_state["ff_result"] = result
                 st.session_state["ff_history"] = []
 
         graph = st.session_state["ff_graph"]
         config = st.session_state["ff_config"]
-        template = st.session_state["ff_template"]
+        template = st.session_state["ff_template_data"]
         result = st.session_state["ff_result"]
         total_questions = len(template["questions"])
 
@@ -171,9 +170,7 @@ def form_filler_tab():
                 st.markdown(f"**{q['question']}**")
                 st.markdown(f"> {ans}")
             if st.button("Reset form"):
-                for key in list(st.session_state.keys()):
-                    if key.startswith("ff_"):
-                        del st.session_state[key]
+                _clear_ff_state()
                 st.rerun()
             return
 
@@ -209,10 +206,8 @@ def form_filler_tab():
                 result = graph.invoke(Command(resume=answer), config=config)
                 st.session_state["ff_result"] = result
 
-                # Determine if answer was accepted or rejected
                 new_interrupts = result.get("__interrupt__", [])
                 if not new_interrupts:
-                    # Form complete — answer was accepted
                     st.session_state["ff_history"].append({
                         "question": question_text,
                         "answer": answer,
@@ -221,14 +216,12 @@ def form_filler_tab():
                 else:
                     new_prompt = new_interrupts[0].value
                     if new_prompt["question_id"] != prompt["question_id"]:
-                        # Moved to next question — previous answer accepted
                         st.session_state["ff_history"].append({
                             "question": question_text,
                             "answer": answer,
                             "accepted": True,
                         })
                     else:
-                        # Same question re-asked — answer rejected
                         st.session_state["ff_history"].append({
                             "question": question_text,
                             "answer": answer,
@@ -237,6 +230,110 @@ def form_filler_tab():
                         })
 
                 st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Tab 2: Form Filler — Agent mode
+# ---------------------------------------------------------------------------
+
+def _form_filler_agent(selected: str):
+    """Agent mode: conversational multi-turn chat."""
+
+    # Initialize chat history
+    if "ff_messages" not in st.session_state:
+        st.session_state["ff_messages"] = []
+
+    if st.button("Start Form", key="ff_agent_start") or st.session_state.get("ff_active"):
+        if not st.session_state.get("ff_active") or st.session_state.get("ff_current_template") != selected:
+            with st.spinner("Creating agent and starting conversation..."):
+                agent, template = create_form_agent(str(TEMPLATES_DIR / selected))
+                config = {"configurable": {"thread_id": f"streamlit-agent-{selected}"}}
+
+                result = agent.invoke(
+                    {"messages": [{"role": "user", "content": "I'm ready to fill out the form."}]},
+                    config=config,
+                )
+
+                agent_reply = result["messages"][-1].content
+
+                st.session_state["ff_active"] = True
+                st.session_state["ff_current_template"] = selected
+                st.session_state["ff_agent"] = agent
+                st.session_state["ff_config"] = config
+                st.session_state["ff_template_data"] = template
+                st.session_state["ff_messages"] = [
+                    {"role": "assistant", "content": agent_reply},
+                ]
+
+        # --- Render chat history ---
+        for msg in st.session_state["ff_messages"]:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
+
+        # --- Chat input ---
+        if user_input := st.chat_input("Your answer"):
+            st.session_state["ff_messages"].append({"role": "user", "content": user_input})
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking..."):
+                    agent = st.session_state["ff_agent"]
+                    config = st.session_state["ff_config"]
+
+                    result = agent.invoke(
+                        {"messages": [{"role": "user", "content": user_input}]},
+                        config=config,
+                    )
+
+                    agent_reply = result["messages"][-1].content
+                    st.markdown(agent_reply)
+
+            st.session_state["ff_messages"].append({"role": "assistant", "content": agent_reply})
+
+        # --- Reset ---
+        if st.session_state.get("ff_active"):
+            if st.button("Reset form"):
+                _clear_ff_state()
+                st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Tab 2: Form Filler — dispatcher
+# ---------------------------------------------------------------------------
+
+def form_filler_tab():
+    st.header("Form Filler")
+
+    templates = list_templates()
+    if not templates:
+        st.info("No templates found in `templates/`. Create one in the Template Builder tab first.")
+        return
+
+    # --- Mode toggle ---
+    mode = st.toggle(
+        "Use Agent (chat) mode",
+        value=st.session_state.get("ff_mode", False),
+        help="**Graph**: deterministic question-by-question with structured validation. "
+             "**Agent**: free-form conversational chat powered by an LLM.",
+    )
+
+    # Reset state when mode changes
+    if mode != st.session_state.get("ff_mode"):
+        _clear_ff_state()
+        st.session_state["ff_mode"] = mode
+
+    if mode:
+        st.caption("Agent mode — conversational chat with LLM-driven flow")
+    else:
+        st.caption("Graph mode — deterministic question-by-question with HITL interrupts")
+
+    selected = st.selectbox("Select template", templates, key="ff_template")
+
+    if mode:
+        _form_filler_agent(selected)
+    else:
+        _form_filler_graph(selected)
 
 
 # ---------------------------------------------------------------------------

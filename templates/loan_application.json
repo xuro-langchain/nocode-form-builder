@@ -5,7 +5,7 @@
     {
       "id": "business_name",
       "question": "What is the legal name of the business entity applying for the loan?",
-      "judge_prompt": "Must be a specific legal business name (e.g., 'Acme Corp LLC'). Reject vague answers like 'my company' or just a person's name without an entity type."
+      "judge_prompt": "Accept any answer that looks like a business or company name. Examples: 'ACME Corp', 'Smith & Sons', 'TechStart Inc'. Only reject obviously non-name answers like 'my company', 'N/A', or blank responses."
     },
     {
       "id": "loan_amount",

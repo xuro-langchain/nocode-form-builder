@@ -19,7 +19,9 @@ uv run streamlit run frontend/app.py
 Two tabs:
 
 - **Template Builder** — Create or edit form templates (questions + judge prompts). Load existing templates from `templates/`, add/remove questions, and save as JSON or YAML.
-- **Form Filler** — Select a template, answer questions one at a time, and get real-time LLM judge validation. Rejected answers show feedback; accepted answers advance to the next question.
+- **Form Filler** — Select a template and fill it out using one of two modes, toggled at the top of the tab:
+  - **Graph mode** (default) — Deterministic question-by-question flow. Each answer is validated by an LLM judge before advancing. Shows a progress bar, feedback on rejection, and a summary on completion.
+  - **Agent mode** — Free-form conversational chat powered by an LLM. The agent drives the conversation naturally, asks questions, and validates answers via tools behind the scenes.
 
 ## CLI runners
 
