@@ -1,9 +1,8 @@
 """
-Simple form-filling agent using create_agent with custom middleware.
+Simple form-filling agent using create_agent.
 
 Same form template, simpler code. The agent drives the conversation naturally,
-and custom middleware wraps the validate_answer tool to track form progress
-and enforce completion.
+validates answers via tools, and tracks form progress.
 
 Multi-turn: each invoke is one exchange (agent asks, user answers, agent validates).
 """
@@ -93,17 +92,29 @@ def make_form_tools_and_middleware(template: dict, judge_model: str = "gpt-4o-mi
             "complete": len(remaining) == 0,
         })
 
-    # Custom middleware: log each validation result
-    @wrap_tool_call
-    def form_tracking_middleware(tool_call, config):
-        result = yield tool_call
-        if tool_call["name"] == "validate_answer":
-            parsed = json.loads(result)
-            status = "ACCEPTED" if parsed.get("sufficient") else "NEEDS REVISION"
-            print(f"  [{status}] {tool_call['args'].get('question_id', '?')} — {parsed.get('feedback', '')[:80]}")
-        return result
+    # Middleware: enforce that questions are answered in template order
+    question_ids = [q["id"] for q in template["questions"]]
 
-    return [validate_answer, get_form_status], [form_tracking_middleware]
+    @wrap_tool_call
+    def enforce_order_middleware(request, handler):
+        tc = request.tool_call
+        if tc["name"] == "validate_answer":
+            qid = tc["args"].get("question_id")
+            answered_ids = set(form_progress["answered"].keys())
+
+            for expected_id in question_ids:
+                if expected_id not in answered_ids:
+                    if qid != expected_id:
+                        return (
+                            f"Cannot validate '{qid}' yet. "
+                            f"Answer '{expected_id}' first. "
+                            f"Questions must be answered in order."
+                        )
+                    break
+
+        return handler(request)
+
+    return [validate_answer, get_form_status], [enforce_order_middleware]
 
 
 # ---------------------------------------------------------------------------

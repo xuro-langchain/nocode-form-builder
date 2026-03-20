@@ -273,23 +273,20 @@ def _form_filler_agent(selected: str):
         # --- Chat input ---
         if user_input := st.chat_input("Your answer"):
             st.session_state["ff_messages"].append({"role": "user", "content": user_input})
-            with st.chat_message("user"):
-                st.markdown(user_input)
 
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    agent = st.session_state["ff_agent"]
-                    config = st.session_state["ff_config"]
+            with st.spinner("Thinking..."):
+                agent = st.session_state["ff_agent"]
+                config = st.session_state["ff_config"]
 
-                    result = agent.invoke(
-                        {"messages": [{"role": "user", "content": user_input}]},
-                        config=config,
-                    )
+                result = agent.invoke(
+                    {"messages": [{"role": "user", "content": user_input}]},
+                    config=config,
+                )
 
-                    agent_reply = result["messages"][-1].content
-                    st.markdown(agent_reply)
+                agent_reply = result["messages"][-1].content
 
             st.session_state["ff_messages"].append({"role": "assistant", "content": agent_reply})
+            st.rerun()
 
         # --- Reset ---
         if st.session_state.get("ff_active"):
