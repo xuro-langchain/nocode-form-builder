@@ -1,0 +1,19 @@
+[project]
+name = "nocode-form-agent"
+version = "0.1.0"
+description = "Form-filling agent with LLM-as-Judge validation"
+requires-python = ">=3.13"
+dependencies = [
+    "langchain>=1.0.0",
+    "langgraph>=1.0.0",
+    "langchain-openai",
+    "langsmith",
+    "pyyaml",
+    "python-dotenv",
+    "streamlit",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
