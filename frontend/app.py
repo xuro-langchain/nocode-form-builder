@@ -60,8 +60,18 @@ def template_builder_tab():
         t = load_template(str(TEMPLATES_DIR / load_choice))
         st.session_state["tb_name"] = t.get("name", "")
         st.session_state["tb_desc"] = t.get("description", "")
-        st.session_state["tb_questions"] = t.get("questions", [])
+        questions = t.get("questions", [])
+        st.session_state["tb_questions"] = questions
         st.session_state["_tb_last_loaded"] = load_choice
+        # Clear old widget keys, then pre-populate from loaded data
+        for k in list(st.session_state.keys()):
+            if k.startswith(("q_id_", "q_text_", "q_judge_")):
+                del st.session_state[k]
+        for i, q in enumerate(questions):
+            st.session_state[f"q_id_{i}"] = q.get("id", "")
+            st.session_state[f"q_text_{i}"] = q.get("question", "")
+            st.session_state[f"q_judge_{i}"] = q.get("judge_prompt", "")
+        st.rerun()
 
     # Initialize defaults
     if "tb_name" not in st.session_state:
