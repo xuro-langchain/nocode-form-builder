@@ -90,12 +90,17 @@ def template_builder_tab():
     questions = st.session_state["tb_questions"]
 
     for i, q in enumerate(questions):
-        # Use the widget key value if it exists (user already typed), else fall back to list
-        display_id = st.session_state.get(f"q_id_{i}", q.get("id", "")) or "(untitled)"
+        # Ensure widget keys exist before rendering (avoids value=/key= conflict)
+        if f"q_id_{i}" not in st.session_state:
+            st.session_state[f"q_id_{i}"] = q.get("id", "")
+            st.session_state[f"q_text_{i}"] = q.get("question", "")
+            st.session_state[f"q_judge_{i}"] = q.get("judge_prompt", "")
+
+        display_id = st.session_state.get(f"q_id_{i}", "") or "(untitled)"
         with st.expander(f"Question {i + 1}: {display_id}", expanded=True):
-            st.text_input("ID", value=q.get("id", ""), key=f"q_id_{i}")
-            st.text_area("Question text", value=q.get("question", ""), key=f"q_text_{i}")
-            st.text_area("Judge prompt", value=q.get("judge_prompt", ""), key=f"q_judge_{i}")
+            st.text_input("ID", key=f"q_id_{i}")
+            st.text_area("Question text", key=f"q_text_{i}")
+            st.text_area("Judge prompt", key=f"q_judge_{i}")
 
             if st.button("Remove", key=f"q_rm_{i}"):
                 questions.pop(i)
