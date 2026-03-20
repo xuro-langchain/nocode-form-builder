@@ -80,13 +80,19 @@ def template_builder_tab():
     questions = st.session_state["tb_questions"]
 
     for i, q in enumerate(questions):
-        with st.expander(f"Question {i + 1}: {q.get('id', '') or '(untitled)'}", expanded=True):
-            questions[i]["id"] = st.text_input("ID", value=q.get("id", ""), key=f"q_id_{i}")
-            questions[i]["question"] = st.text_area("Question text", value=q.get("question", ""), key=f"q_text_{i}")
-            questions[i]["judge_prompt"] = st.text_area("Judge prompt", value=q.get("judge_prompt", ""), key=f"q_judge_{i}")
+        # Use the widget key value if it exists (user already typed), else fall back to list
+        display_id = st.session_state.get(f"q_id_{i}", q.get("id", "")) or "(untitled)"
+        with st.expander(f"Question {i + 1}: {display_id}", expanded=True):
+            st.text_input("ID", value=q.get("id", ""), key=f"q_id_{i}")
+            st.text_area("Question text", value=q.get("question", ""), key=f"q_text_{i}")
+            st.text_area("Judge prompt", value=q.get("judge_prompt", ""), key=f"q_judge_{i}")
 
             if st.button("Remove", key=f"q_rm_{i}"):
                 questions.pop(i)
+                # Clean up widget keys for removed and subsequent questions
+                for k in list(st.session_state.keys()):
+                    if k.startswith(("q_id_", "q_text_", "q_judge_")):
+                        del st.session_state[k]
                 st.rerun()
 
     col1, col2, col3 = st.columns(3)
@@ -104,10 +110,21 @@ def template_builder_tab():
         fmt = st.radio("Format", ["JSON", "YAML"], horizontal=True)
 
     if st.button("Save template", type="primary"):
+        # Read current values from widget keys (source of truth after user edits)
+        saved_questions = []
+        for i in range(len(questions)):
+            qid = st.session_state.get(f"q_id_{i}", "")
+            if qid:
+                saved_questions.append({
+                    "id": qid,
+                    "question": st.session_state.get(f"q_text_{i}", ""),
+                    "judge_prompt": st.session_state.get(f"q_judge_{i}", ""),
+                })
+
         template_data = {
             "name": st.session_state["tb_name"],
             "description": st.session_state["tb_desc"],
-            "questions": [q for q in questions if q.get("id")],
+            "questions": saved_questions,
         }
 
         TEMPLATES_DIR.mkdir(exist_ok=True)
